@@ -1,3 +1,4 @@
+#include <linux/binfmts.h>
 #include <linux/cgroup.h>
 #include <linux/err.h>
 #include <linux/kernel.h>
@@ -5,6 +6,7 @@
 #include <linux/printk.h>
 #include <linux/rcupdate.h>
 #include <linux/slab.h>
+#include <linux/battery_saver.h>
 
 #include <trace/events/sched.h>
 #ifdef CONFIG_PRODUCT_REALME_TRINKET
@@ -735,7 +737,7 @@ int schedtune_task_boost_rcu_locked(struct task_struct *p)
 	struct schedtune *st;
 	int task_boost;
 
-	if (unlikely(!schedtune_initialized))
+	if (unlikely(!schedtune_initialized) || is_battery_saver_on())
 		return 0;
 
 	/* Get task boost value */
@@ -750,7 +752,7 @@ int schedtune_prefer_idle(struct task_struct *p)
 	struct schedtune *st;
 	int prefer_idle;
 
-	if (unlikely(!schedtune_initialized))
+	if (unlikely(!schedtune_initialized) || is_battery_saver_on())
 		return 0;
 
 	/* Get prefer_idle value */
@@ -766,6 +768,9 @@ static u64
 prefer_idle_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
 	struct schedtune *st = css_st(css);
+
+	if (is_battery_saver_on())
+		return 0;
 
 	return st->prefer_idle;
 }
@@ -784,6 +789,9 @@ static s64
 boost_read(struct cgroup_subsys_state *css, struct cftype *cft)
 {
 	struct schedtune *st = css_st(css);
+
+	if (is_battery_saver_on())
+		return 0;
 
 	return st->boost;
 }
@@ -856,37 +864,39 @@ schedtune_boostgroup_update_defered(int idx, s64 defered)
 				schedtune_queue_boost_work(bg, idx, cpu);
 		}
 	}
-
-	return 0;
-}
-
-static s64
-defered_read(struct cgroup_subsys_state *css, struct cftype *cft)
+#ifdef CONFIG_STUNE_ASSIST
+static int boost_write_wrapper(struct cgroup_subsys_state *css,
+			       struct cftype *cft, s64 boost)
 {
-	struct schedtune *st = css_st(css);
-	return st->defered;
-}
-
-static int
-defered_write(struct cgroup_subsys_state *css, struct cftype *cft,
-	    s64 defered)
-{
-	struct schedtune *st = css_st(css);
-
-	if (defered < -1 || defered > DEFERED_MAX_MSEC)
-		return -EINVAL;
-
-	if (defered == st->defered)
+	if (task_is_booster(current))
 		return 0;
 
-	st->defered = defered;
+	return boost_write(css, cft, boost);
+}
 
-	/* Update defered of boostgroup */
-	schedtune_boostgroup_update_defered(st->idx, st->defered);
+static int prefer_idle_write_wrapper(struct cgroup_subsys_state *css,
+				     struct cftype *cft, u64 prefer_idle)
+{
+	if (task_is_booster(current))
+		return 0;
 
-	return 0;
+	return prefer_idle_write(css, cft, prefer_idle);
 }
 #endif
+
+static u64 prefer_high_cap_read(struct cgroup_subsys_state *css,
+				struct cftype *cft)
+{
+	/* Do nothing */
+	return 0;
+}
+
+static int prefer_high_cap_write(struct cgroup_subsys_state *css,
+				 struct cftype *cft, u64 prefer_high_cap)
+{
+	/* Do nothing */
+	return 0;
+}
 
 static struct cftype files[] = {
 #ifdef CONFIG_SCHED_WALT
@@ -904,18 +914,27 @@ static struct cftype files[] = {
 	{
 		.name = "boost",
 		.read_s64 = boost_read,
-		.write_s64 = boost_write,
+#ifdef CONFIG_STUNE_ASSIST
+		.write_s64 = boost_write_wrapper,
+#else
+		.write_u64 = boost_write,
+#endif
 	},
 	{
 		.name = "prefer_idle",
 		.read_u64 = prefer_idle_read,
-		.write_u64 = prefer_idle_write,
+#ifdef CONFIG_STUNE_ASSIST
+		.write_u64 = prefer_idle_write_wrapper,
+#else
+		.write_u64 = prefer_idle,
+#endif
 	},
+
 #ifdef CONFIG_PRODUCT_REALME_TRINKET
 	{
-		.name = "defered",
-		.read_s64 = defered_read,
-		.write_s64 = defered_write,
+		.name = "prefer_high_cap",
+		.read_u64 = prefer_high_cap_read,
+		.write_u64 = prefer_high_cap_write,
 	},
 #endif
 	{ }	/* terminate */
@@ -1059,7 +1078,7 @@ static void write_default_values(struct cgroup_subsys_state *css)
 		{ "background",	0, 0 },
 		{ "foreground",	0, 1 },
 		{ "rt",		0, 0 },
-		{ "top-app",	0, 1 },
+		{ "top-app",	1, 1 },
 	};
 	int i;
 
@@ -1091,10 +1110,13 @@ schedtune_css_alloc(struct cgroup_subsys_state *parent_css)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	/* Allow only a limited number of boosting groups */
-	for (idx = 1; idx < BOOSTGROUPS_COUNT; ++idx)
+	for (idx = 1; idx < BOOSTGROUPS_COUNT; ++idx) {
 		if (!allocated_group[idx])
 			break;
+#ifdef CONFIG_STUNE_ASSIST
+		write_default_values(&allocated_group[idx]->css);
+#endif
+	}
 	if (idx == BOOSTGROUPS_COUNT) {
 		pr_err("Trying to create more than %d SchedTune boosting groups\n",
 		       BOOSTGROUPS_COUNT);
