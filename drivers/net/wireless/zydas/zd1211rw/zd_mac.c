@@ -1061,8 +1061,8 @@ int zd_mac_rx(struct ieee80211_hw *hw, const u8 *buffer, unsigned int length)
 	/* Caller has to ensure that length >= sizeof(struct rx_status). */
 	status = (struct rx_status *)
 		(buffer + (length - sizeof(struct rx_status)));
-	if ((status->frame_status & ZD_RX_ERROR) || 
-		(status->frame_status & ~0x21)) {x
+	if ((status->frame_status & ZD_RX_ERROR) ||
+		(status->frame_status & ~0x21)) {
 		if (mac->pass_failed_fcs &&
 				(status->frame_status & ZD_RX_CRC32_ERROR)) {
 			stats.flag |= RX_FLAG_FAILED_FCS_CRC;
