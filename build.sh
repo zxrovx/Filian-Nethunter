@@ -8,7 +8,7 @@
 # Initializing variables
 SECONDS=0 # builtin bash timer
 ZIPNAME="Filian-Nethunter_Edition-$(date '+%Y%m%d-%H%M').zip"
-TC_DIR="$HOME/tc/xRageTC-clang"
+TC_DIR="$HOME/tc/WeebX-Clang"
 AK3_DIR="$HOME/android/AnyKernel3"
 DEFCONFIG="vendor/RMX1911_defconfig"
 export TZ=Asia/Jakarta
@@ -24,10 +24,10 @@ fi
 # <---SETUP CLANG COMPILER/LINKER--->
 
 if ! [ -d "$TC_DIR" ]; then
-  echo "xRageTC-clang not found!"
+  echo "WeebX-Clang not found!"
   # Clone WeebX Clang repository
-  echo "Cloning xRageTC-clang to $TC_DIR..."
-  if ! git clone --depth=1 --single-branch https://github.com/xyz-prjkt/xRageTC-clang "$TC_DIR"; then
+  echo "Cloning WeebX-Clang to $TC_DIR..."
+  if ! git clone --depth=1 --single-branch https://gitlab.com/mizdrake7/weebx-clang "$TC_DIR"; then
     echo "Cloning failed! Aborting..."
     exit 1
   fi
